@@ -1,0 +1,13 @@
+# 向量数据库（太大）
+chroma_db/
+
+# Python缓存
+__pycache__/
+*.pyc
+
+# 环境变量
+.env
+
+# 模型文件（太大）
+*.bin
+*.safetensors
