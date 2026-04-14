@@ -35,10 +35,13 @@ Gradio 医生交互界面
 
 ### 1. 启动推理服务
 ```bash
-vllm serve /path/to/qwen7b_medical_merged \
+vllm serve /root/autodl-tmp/qwen7b_medical_merged \
     --host 0.0.0.0 \
     --port 8000 \
-    --max-model-len 4096
+    --max-model-len 4096 \
+    --gpu-memory-utilization 0.90 \
+    --enable-auto-tool-choice \
+    --tool-call-parser hermes
 ```
 
 ### 2. 启动后端
