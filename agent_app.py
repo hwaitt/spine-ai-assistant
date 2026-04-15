@@ -1,18 +1,33 @@
 import gradio as gr
 import os
+import re
+import base64
 from langchain_community.chat_models.tongyi import ChatTongyi
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
-import dashscope
-import base64
 from dashscope import MultiModalConversation
 
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+DOCS_DIR = "/root/autodl-tmp/medical-ai/docs"
+CHROMA_DIR = "/root/autodl-tmp/medical-ai/chroma_db"
+EMBEDDING_MODEL = "/root/autodl-tmp/models/AI-ModelScope/bge-small-zh-v1.5"
 
-# ============ 1. 初始化模型和知识库 ============
+# ============ 1. 自动读取患者列表 ============
+def get_patient_list():
+    patients = []
+    for filename in os.listdir(DOCS_DIR):
+        if filename.endswith(".txt"):
+            with open(os.path.join(DOCS_DIR, filename), "r", encoding="utf-8") as f:
+                content = f.read()
+                match = re.search(r"患者姓名[：:]\s*(\S+)", content)
+                if match:
+                    patients.append(match.group(1))
+    return patients if patients else ["未找到患者"]
+
+# ============ 2. 初始化模型和知识库 ============
 print("初始化中...")
 
 llm = ChatTongyi(
@@ -22,40 +37,25 @@ llm = ChatTongyi(
 )
 
 embeddings = HuggingFaceEmbeddings(
-    model_name="/root/autodl-tmp/models/AI-ModelScope/bge-small-zh-v1.5",
+    model_name=EMBEDDING_MODEL,
     model_kwargs={"device": "cpu"},
     encode_kwargs={"normalize_embeddings": True}
 )
 
 vectorstore = Chroma(
-    persist_directory="/root/autodl-tmp/medical-ai/chroma_db",
+    persist_directory=CHROMA_DIR,
     embedding_function=embeddings
 )
 retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
 
-# ============ 2. 定义工具 ============
+# ============ 3. 定义工具 ============
 @tool
 def search_patient_record(patient_name: str) -> str:
     """根据患者姓名查询病历，包括既往史、过敏史、MRI报告、手术风险"""
-    records = {
-        "张某某": """
-        年龄：58岁，主诉：腰痛伴右下肢放射痛3年
-        MRI：L4-L5黄韧带肥厚8mm，硬膜囊受压
-        既往史：高血压10年，口服氨氯地平
-        过敏史：青霉素过敏
-        手术风险：中等风险，需控制血压
-        麻醉建议：全身麻醉，避免青霉素类抗生素
-        """,
-        "李某某": """
-        年龄：45岁，主诉：颈椎病，上肢麻木
-        MRI：C5-C6椎间盘突出
-        既往史：糖尿病5年
-        过敏史：无
-        手术风险：中等风险，需控制血糖
-        麻醉建议：全身麻醉，术前血糖控制在8mmol/L以下
-        """
-    }
-    return records.get(patient_name, "未找到该患者病历")
+    docs = retriever.invoke(patient_name)
+    if not docs:
+        return f"未找到{patient_name}的病历，请确认姓名"
+    return "\n\n".join([d.page_content for d in docs])
 
 @tool
 def search_medical_knowledge(query: str) -> str:
@@ -73,19 +73,19 @@ def calculate_drug_dosage(drug: str, weight_kg: float) -> str:
         "氨氯地平": "5-10mg，每日1次",
         "地塞米松": f"{weight_kg * 0.1:.1f}mg，遵医嘱",
         "克林霉素": f"{weight_kg * 8:.0f}mg，每日3次",
+        "万古霉素": f"{weight_kg * 15:.0f}mg，每日2次，静脉滴注",
     }
     return dosages.get(drug, f"暂无{drug}剂量规则，请查阅药典")
 
 @tool
 def get_surgery_risk(patient_name: str) -> str:
-    """评估患者手术风险等级和注意事项"""
-    risks = {
-        "张某某": "中等风险：高血压需术前控制，青霉素过敏需备用抗生素方案",
-        "李某某": "中等风险：糖尿病需术前血糖控制在8mmol/L以下"
-    }
-    return risks.get(patient_name, "未找到该患者风险评估")
+    """评估患者手术风险，从病历中提取风险相关信息"""
+    docs = retriever.invoke(f"{patient_name} 手术风险 麻醉")
+    if not docs:
+        return f"未找到{patient_name}的风险评估信息"
+    return "\n\n".join([d.page_content for d in docs])
 
-# ============ 3. 创建 Agent ============
+# ============ 4. 创建 Agent ============
 tools = [
     search_patient_record,
     search_medical_knowledge,
@@ -104,12 +104,15 @@ agent = create_react_agent(
 - search_medical_knowledge: 搜索医学知识库
 - calculate_drug_dosage: 计算用药剂量
 - get_surgery_risk: 评估手术风险
-根据问题自己判断需要调用哪些工具，综合信息后给出专业回答。"""
+
+根据问题自己判断需要调用哪些工具，综合信息后给出专业回答。回答简洁专业，不要重复。"""
 )
 
 print("Agent 初始化完成！")
+PATIENTS = get_patient_list()
+print(f"已加载患者：{PATIENTS}")
 
-# ============ 4. 图像分析函数 ============
+# ============ 5. 图像分析函数 ============
 def analyze_image(image_path):
     if image_path is None:
         return "请先上传图片"
@@ -125,7 +128,7 @@ def analyze_image(image_path):
                 "role": "user",
                 "content": [
                     {"image": f"data:{mime};base64,{image_data}"},
-                    {"text": "这是脊柱内窥镜手术图像，请简洁描述图中组织结构，重点关注组织类型、颜色形态、是否有黄韧带或硬膜外脂肪。"}
+                    {"text": "这是脊柱内窥镜手术图像，请简洁描述图中组织结构，重点关注组织类型、颜色形态、是否有黄韧带或硬膜外脂肪、组织边界是否清晰。"}
                 ]
             }]
         )
@@ -133,12 +136,11 @@ def analyze_image(image_path):
     except Exception as e:
         return f"图像分析失败: {e}"
 
-# ============ 5. Agent 对话函数 ============
+# ============ 6. Agent 对话函数 ============
 def agent_chat(question, image_desc, patient_name, history, session_id):
     if not question.strip():
         return history, history, ""
 
-    # 把图像描述和患者信息拼入问题
     full_question = question
     if patient_name:
         full_question = f"【当前患者：{patient_name}】{question}"
@@ -162,12 +164,7 @@ def agent_chat(question, image_desc, patient_name, history, session_id):
     ]
     return history, history, ""
 
-def switch_patient():
-    return [], []
-
-# ============ 6. Gradio 界面 ============
-PATIENTS = ["张某某", "李某某", "王某某"]
-
+# ============ 7. Gradio 界面 ============
 with gr.Blocks(title="脊柱外科AI Agent系统") as demo:
     gr.Markdown("# 🏥 脊柱外科 AI Agent 系统")
     gr.Markdown("Agent 自动判断：查病历 / 搜知识库 / 算剂量 / 评估风险")
@@ -188,8 +185,9 @@ with gr.Blocks(title="脊柱外科AI Agent系统") as demo:
             gr.Markdown("### 👤 当前患者")
             patient_name = gr.Dropdown(
                 choices=PATIENTS,
-                value="张某某",
-                label="选择患者"
+                value=PATIENTS[0] if PATIENTS else None,
+                label="选择患者",
+                info="新增病历后重启服务自动更新"
             )
 
             gr.Markdown("### 📷 内窥镜图像")

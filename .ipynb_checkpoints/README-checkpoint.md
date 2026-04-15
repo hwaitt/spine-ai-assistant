@@ -43,7 +43,9 @@ vllm serve /root/autodl-tmp/qwen7b_medical_merged \
     --enable-auto-tool-choice \
     --tool-call-parser hermes
 ```
-
+cd /root/autodl-tmp/medical-ai/
+添加完数据库后
+python rebuild_db.py
 ### 2. 启动后端
 ```bash
 python server.py
@@ -51,8 +53,9 @@ python server.py
 
 ### 3. 启动前端
 ```bash
+export OMP_NUM_THREADS=1
 export DASHSCOPE_API_KEY="你的key"
-python app.py
+python agent_app.py
 ```
 
 ### 4. 访问界面
