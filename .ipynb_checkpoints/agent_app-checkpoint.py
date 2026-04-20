@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from dashscope import MultiModalConversation
+from langchain_openai import ChatOpenAI
 
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 DOCS_DIR = "/root/autodl-tmp/medical-ai/docs"
@@ -30,10 +31,15 @@ def get_patient_list():
 # ============ 2. 初始化模型和知识库 ============
 print("初始化中...")
 
-llm = ChatTongyi(
-    dashscope_api_key=DASHSCOPE_API_KEY,
-    model="qwen-plus",
+llm = ChatOpenAI(
+    api_key="not-needed",
+    base_url="http://localhost:8000/v1",
+    model="/root/autodl-tmp/spine_qwen25_merged",
     temperature=0.7,
+    max_tokens=512,
+    model_kwargs={
+        "extra_body": {"repetition_penalty": 1.15}
+    }
 )
 
 embeddings = HuggingFaceEmbeddings(
@@ -46,7 +52,7 @@ vectorstore = Chroma(
     persist_directory=CHROMA_DIR,
     embedding_function=embeddings
 )
-retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
 
 # ============ 3. 定义工具 ============
 @tool
@@ -158,10 +164,7 @@ def agent_chat(question, image_desc, patient_name, history, session_id):
     except Exception as e:
         answer = f"Agent 错误: {e}"
 
-    history = history + [
-        {"role": "user", "content": question},
-        {"role": "assistant", "content": answer}
-    ]
+    history = history + [[question, answer]]
     return history, history, ""
 
 # ============ 7. Gradio 界面 ============

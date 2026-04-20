@@ -50,20 +50,18 @@ Gradio 医生界面
 cd /root/autodl-tmp/medical-ai/
 ```bash
 # 1. 启动 vLLM 推理服务
-vllm serve /root/autodl-tmp/qwen7b_medical_merged \
+vllm serve /root/autodl-tmp/spine_qwen25_merged \
     --host 0.0.0.0 \
     --port 8000 \
     --max-model-len 4096 \
-    --gpu-memory-utilization 0.90 \
+    --gpu-memory-utilization 0.85 \
     --enable-auto-tool-choice \
     --tool-call-parser hermes
-# 2.启动后端
-python server.py
-# 3. 设置环境变量
+# 2. 设置环境变量
 export DASHSCOPE_API_KEY="your_key"
 export OMP_NUM_THREADS=1
 
-# 4. 启动 Agent 系统
+# 3. 启动 Agent 系统
 python agent_mcp.py
 ```
 
