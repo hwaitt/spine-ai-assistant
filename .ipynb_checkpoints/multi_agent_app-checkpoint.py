@@ -14,6 +14,12 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from typing_extensions import TypedDict
 from dashscope import MultiModalConversation
+import uuid
+
+def reset_session(patient_name):
+    history = patient_histories.get(patient_name, [])
+    return history, str(uuid.uuid4())
+patient_histories = {}
 
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 DOCS_DIR = "/root/autodl-tmp/medical-ai/docs"
@@ -256,9 +262,10 @@ def analyze_image(image_path):
         return f"图像分析失败: {e}"
 
 # ============ 11. 多 Agent 对话函数 ============
-def multi_agent_chat(question, image_desc, patient_name, history, session_id):
+def multi_agent_chat(question, image_desc, patient_name, session_id):
     if not question.strip():
-        return history, history, ""
+        history = patient_histories.get(patient_name, [])
+        return history, ""
 
     full_question = question
     if patient_name:
@@ -266,7 +273,7 @@ def multi_agent_chat(question, image_desc, patient_name, history, session_id):
     if image_desc and image_desc.strip():
         full_question += f"\n【内窥镜图像描述】{image_desc}"
 
-    config = {"configurable": {"thread_id": session_id}}
+    config = {"configurable": {"thread_id": f"{session_id}_{patient_name}"}}
 
     try:
         result = multi_agent.invoke(
@@ -275,7 +282,9 @@ def multi_agent_chat(question, image_desc, patient_name, history, session_id):
                 "messages": [HumanMessage(content=full_question)],
                 "record_result": "",
                 "paper_result": "",
-                "final_answer": ""
+                "final_answer": "",
+                "need_record": False,
+                "need_paper": False,
             },
             config=config
         )
@@ -283,8 +292,10 @@ def multi_agent_chat(question, image_desc, patient_name, history, session_id):
     except Exception as e:
         answer = f"错误: {e}"
 
+    history = patient_histories.get(patient_name, [])
     history = history + [[question, answer]]
-    return history, history, ""
+    patient_histories[patient_name] = history
+    return history, ""
 
 # ============ 12. Gradio 界面 ============
 with gr.Blocks(title="脊柱外科多Agent AI系统") as demo:
@@ -329,21 +340,28 @@ with gr.Blocks(title="脊柱外科多Agent AI系统") as demo:
 **两个子Agent并行运行，汇总Agent整合结果**
             """)
 
-    session_id = gr.State("multi_session_001")
-    history_state = gr.State([])
+    session_id = gr.State(str(uuid.uuid4()))
 
     analyze_btn.click(analyze_image, inputs=[image_input], outputs=[image_desc])
     submit.click(
         multi_agent_chat,
-        inputs=[question, image_desc, patient_name, history_state, session_id],
-        outputs=[chatbot, history_state, question]
+        inputs=[question, image_desc, patient_name, session_id],
+        outputs=[chatbot, question]
     )
     question.submit(
         multi_agent_chat,
-        inputs=[question, image_desc, patient_name, history_state, session_id],
-        outputs=[chatbot, history_state, question]
+        inputs=[question, image_desc, patient_name, session_id],
+        outputs=[chatbot, question]
     )
-    clear.click(lambda: ([], []), outputs=[chatbot, history_state])
-    patient_name.change(lambda: ([], []), outputs=[chatbot, history_state])
+    clear.click(
+        lambda p: (patient_histories.update({p: []}) or []),
+        inputs=[patient_name],
+        outputs=[chatbot]
+    )
+    patient_name.change(
+        reset_session,
+        inputs=[patient_name],
+        outputs=[chatbot, session_id]
+    )
 
 demo.launch(server_name="0.0.0.0", server_port=6006, share=False)

@@ -57,11 +57,13 @@ vllm serve /root/autodl-tmp/spine_qwen25_merged \
     --gpu-memory-utilization 0.85 \
     --enable-auto-tool-choice \
     --tool-call-parser hermes
-# 2. 设置环境变量
+# 2.启动后端
+python server.py
+# 3. 设置环境变量
 export DASHSCOPE_API_KEY="your_key"
 export OMP_NUM_THREADS=1
 
-# 3. 启动 Agent 系统
+# 4. 启动 Agent 系统
 python agent_mcp.py
 ```
 
