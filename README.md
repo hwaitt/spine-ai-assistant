@@ -202,6 +202,7 @@ medical-ai/
 ├── agent_mcp.py               # MCP Agent 版本
 ├── server.py                  # FastAPI 后端
 ├── rebuild_db.py              # 重建病历知识库
+├──spine_sft_final_cleaned.jsonl  #6000+脊柱外科专业问答数据集
 └── README.md
 ```
 
@@ -232,7 +233,3 @@ medical-ai/
 | eval_loss | 1.4296 |
 | 训练硬件 | RTX 4090（24GB）|
 | 训练时长 | 约 42 分钟 |
-
-## 📄 License
-
-MIT License
